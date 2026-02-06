@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>AI 听写 Pro</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* --- iOS 风格深度定制 --- */
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&display=swap');
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", "Noto Sans SC", sans-serif;
+            background-color: #F2F2F7; /* iOS 系统背景灰 */
+            color: #000;
+            -webkit-tap-highlight-color: transparent;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* 隐藏滚动条 */
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+        /* iOS 风格滑块 */
+        input[type=range] {
+            -webkit-appearance: none;
+            width: 100%;
+            background: transparent;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 28px;
+            width: 28px;
+            border-radius: 50%;
+            background: #FFFFFF;
+            box-shadow: 0 3px 8px rgba(0,0,0,0.15), 0 0 1px rgba(0,0,0,0.1);
+            margin-top: -12px;
+            transition: transform 0.1s;
+        }
+        input[type=range]:active::-webkit-slider-thumb { transform: scale(1.1); }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 4px;
+            cursor: pointer;
+            background: #E5E5EA;
+            border-radius: 2px;
+        }
+        
+        /* 选中状态的滑块左侧颜色需要JS动态处理，这里用基础色 */
+        
+        /* 毛玻璃效果 */
+        .glass {
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-top: 0.5px solid rgba(0,0,0,0.05);
+        }
+
+        /* 呼吸高亮动画 */
+        @keyframes pulse-blue {
+            0% { box-shadow: 0 0 0 0 rgba(0, 122, 255, 0.4); }
+            70% { box-shadow: 0 0 0 10px rgba(0, 122, 255, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(0, 122, 255, 0); }
+        }
+        .animate-listening {
+            animation: pulse-blue 2s infinite;
+        }
+
+        /* 卡片阴影 */
+        .ios-card {
+            background: #FFFFFF;
+            border-radius: 20px; /* 更大的圆角 */
+            box-shadow: 0 4px 20px rgba(0,0,0,0.03);
+        }
+
+        /* 按钮点击态 */
+        .active-scale:active {
+            transform: scale(0.96);
+            opacity: 0.9;
+        }
+    </style>
+</head>
+<body class="pb-32 pt-safe">
+
+    <!-- 顶部导航栏 -->
+    <header class="fixed top-0 w-full z-50 glass transition-all duration-300">
+        <div class="max-w-md mx-auto px-5 h-14 flex items-center justify-between">
+            <h1 class="text-lg font-bold tracking-tight text-slate-900">AI 听写 Pro</h1>
+            <button id="clearBtn" class="text-[15px] font-medium text-blue-500 active:opacity-50 px-2 py-1">
+                清空
+            </button>
+        </div>
+    </header>
+
+    <!-- 占位符，防止内容被 Header 遮挡 -->
+    <div class="h-16"></div>
+
+    <main class="max-w-md mx-auto px-4 space-y-5">
+        
+        <!-- 核心功能区：输入与展示切换 -->
+        <section class="ios-card overflow-hidden transition-all duration-300 relative group">
+            
+            <!-- 1. 编辑模式 -->
+            <div id="editMode" class="p-5 transition-opacity duration-300">
+                <div class="flex justify-between items-center mb-3">
+                    <label class="text-[13px] font-semibold text-slate-400 uppercase tracking-wider">词语列表</label>
+                    <span id="wordCount" class="text-[13px] text-slate-400 font-medium bg-slate-100 px-2 py-0.5 rounded-md">0</span>
+                </div>
+                <textarea id="wordInput" 
+                    class="w-full h-40 text-[17px] leading-relaxed p-0 border-0 focus:ring-0 resize-none placeholder-slate-300 bg-transparent text-slate-800" 
+                    placeholder="在此输入或粘贴词语...&#10;支持空格、逗号、换行分隔&#10;例如：苹果，香蕉，大西瓜"></textarea>
+            </div>
+
+            <!-- 2. 听写模式 (初始隐藏) -->
+            <div id="playMode" class="hidden absolute inset-0 bg-white p-5 flex-col items-center justify-center text-center z-10">
+                <div class="mb-4">
+                    <span class="text-xs font-bold text-slate-400 uppercase tracking-widest">CURRENT WORD</span>
+                </div>
+                <!-- 当前大字 -->
+                <div id="currentWordBig" class="text-4xl font-bold text-slate-900 mb-6 transition-all duration-300 transform scale-100">
+                    准备开始
+                </div>
+                <!-- 进度条 -->
+                <div class="w-full h-1.5 bg-slate-100 rounded-full mb-2 overflow-hidden">
+                    <div id="progressBar" class="h-full bg-blue-500 w-0 transition-all duration-500 ease-out"></div>
+                </div>
+                <div class="flex justify-between w-full text-xs text-slate-400 font-medium px-1">
+                    <span id="progressText">0/0</span>
+                    <span id="statusText">等待开始</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- 设置面板 -->
+        <section class="ios-card p-5 space-y-7">
+            <!-- 语速 -->
+            <div>
+                <div class="flex justify-between mb-3 items-center">
+                    <div class="flex items-center gap-2">
+                        <div class="w-7 h-7 rounded-full bg-blue-50 flex items-center justify-center text-blue-500">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                        </div>
+                        <span class="text-[15px] font-medium text-slate-700">朗读语速</span>
+                    </div>
+                    <span id="rateDisplay" class="text-[15px] font-semibold text-slate-900 font-mono">1.0x</span>
+                </div>
+                <input type="range" id="rateInput" min="0.5" max="1.5" step="0.1" value="0.8">
+            </div>
+
+            <!-- 间隔 -->
+            <div>
+                <div class="flex justify-between mb-3 items-center">
+                    <div class="flex items-center gap-2">
+                        <div class="w-7 h-7 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-500">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></svg>
+                        </div>
+                        <span class="text-[15px] font-medium text-slate-700">书写间隔</span>
+                    </div>
+                    <span id="intervalDisplay" class="text-[15px] font-semibold text-slate-900 font-mono">5s</span>
+                </div>
+                <input type="range" id="intervalInput" min="2" max="20" step="1" value="5">
+            </div>
+
+            <!-- 重复次数 (Segmented Control) -->
+            <div>
+                <div class="flex items-center gap-2 mb-3">
+                    <div class="w-7 h-7 rounded-full bg-emerald-50 flex items-center justify-center text-emerald-500">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg>
+                    </div>
+                    <span class="text-[15px] font-medium text-slate-700">重复朗读</span>
+                </div>
+                <div class="bg-slate-100 p-1 rounded-xl flex">
+                    <button class="repeat-opt flex-1 py-2 rounded-lg text-sm font-semibold text-slate-500 transition-all" data-val="1">1遍</button>
+                    <button class="repeat-opt flex-1 py-2 rounded-lg text-sm font-semibold text-slate-500 transition-all shadow-sm bg-white text-slate-900" data-val="2">2遍</button>
+                    <button class="repeat-opt flex-1 py-2 rounded-lg text-sm font-semibold text-slate-500 transition-all" data-val="3">3遍</button>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- 底部悬浮控制栏 -->
+    <footer class="fixed bottom-6 left-0 right-0 px-4 z-40">
+        <div class="max-w-md mx-auto grid grid-cols-4 gap-3">
+            <!-- 停止按钮 -->
+            <button id="stopBtn" class="col-span-1 bg-white text-slate-400 font-bold rounded-2xl h-14 shadow-lg shadow-slate-200/50 flex items-center justify-center active-scale transition-colors disabled:opacity-50" disabled>
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" class="w-6 h-6"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/></svg>
+            </button>
+            
+            <!-- 主播放按钮 -->
+            <button id="mainActionBtn" class="col-span-3 bg-[#007AFF] text-white font-bold rounded-2xl h-14 shadow-lg shadow-blue-500/30 flex items-center justify-center gap-3 text-lg active-scale transition-all">
+                <svg id="playIcon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" class="w-6 h-6"><path d="M5 3l14 9-14 9V3z"/></svg>
+                <span id="btnText">开始听写</span>
+            </button>
+        </div>
+    </footer>
+
+    <script>
+        /**
+         * 逻辑控制器 - 解决 iOS/Android 音频策略问题
+         */
+        const App = {
+            data: {
+                words: [],
+                currentIndex: 0,
+                repeatCount: 0,
+                isPlaying: false,
+                isPaused: false,
+                isWaiting: false,
+                timer: null,
+                settings: {
+                    rate: 0.8,
+                    interval: 5,
+                    repeats: 2
+                }
+            },
+            
+            els: {},
+            synth: window.speechSynthesis,
+            voices: [],
+
+            init() {
+                // 绑定 DOM 元素
+                this.bindElements();
+                // 恢复数据
+                this.loadState();
+                // 绑定事件
+                this.addListeners();
+                // 预加载语音列表（解决 Chrome 首次无语音问题）
+                if (this.synth.onvoiceschanged !== undefined) {
+                    this.synth.onvoiceschanged = () => this.voices = this.synth.getVoices();
+                }
+            },
+
+            bindElements() {
+                const $ = (id) => document.getElementById(id);
+                const $all = (sel) => document.querySelectorAll(sel);
+                this.els = {
+                    input: $('wordInput'),
+                    clearBtn: $('clearBtn'),
+                    count: $('wordCount'),
+                    editMode: $('editMode'),
+                    playMode: $('playMode'),
+                    currentWord: $('currentWordBig'),
+                    progressBar: $('progressBar'),
+                    progressText: $('progressText'),
+                    statusText: $('statusText'),
+                    rateInput: $('rateInput'),
+                    rateDisp: $('rateDisplay'),
+                    intInput: $('intervalInput'),
+                    intDisp: $('intervalDisplay'),
+                    repeatOpts: $all('.repeat-opt'),
+                    mainBtn: $('mainActionBtn'),
+                    stopBtn: $('stopBtn'),
+                    btnText: $('btnText'),
+                    playIcon: $('playIcon')
+                };
+            },
+
+            addListeners() {
+                // 输入监听
+                this.els.input.addEventListener('input', () => {
+                    this.processWords();
+                    this.saveState();
+                });
+
+                // 清空按钮 (修复了之前的 Bug)
+                this.els.clearBtn.addEventListener('click', () => {
+                    if(this.els.input.value.trim() === '') return;
+                    if(confirm('确定要清空所有内容吗？')) {
+                        this.els.input.value = '';
+                        this.processWords();
+                        this.stop();
+                        this.saveState();
+                    }
+                });
+
+                // 播放/暂停按钮 (核心逻辑)
+                this.els.mainBtn.addEventListener('click', () => {
+                    this.togglePlay();
+                });
+
+                // 停止按钮
+                this.els.stopBtn.addEventListener('click', () => {
+                    this.stop();
+                });
+
+                // 设置控件
+                this.els.rateInput.addEventListener('input', (e) => {
+                    this.data.settings.rate = parseFloat(e.target.value);
+                    this.els.rateDisp.textContent = this.data.settings.rate + 'x';
+                    this.saveState();
+                });
+
+                this.els.intInput.addEventListener('input', (e) => {
+                    this.data.settings.interval = parseInt(e.target.value);
+                    this.els.intDisp.textContent = this.data.settings.interval + 's';
+                    this.saveState();
+                });
+
+                this.els.repeatOpts.forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        const val = parseInt(e.target.dataset.val);
+                        this.updateRepeatUI(val);
+                        this.data.settings.repeats = val;
+                        this.saveState();
+                    });
+                });
+            },
+
+            processWords() {
+                const raw = this.els.input.value;
+                // 更智能的分割：逗号、空格、顿号、换行
+                this.data.words = raw.split(/[,\uff0c\u3001\s\n]+/).filter(w => w.trim().length > 0);
+                this.els.count.textContent = this.data.words.length;
+            },
+
+            // --- 核心播放逻辑 ---
+
+            togglePlay() {
+                // 1. 移动端音频解锁 (Critical Fix)
+                // 即使是暂停状态，点击按钮也必须先触发一次 speak，确保 AudioContext 活跃
+                if (!this.data.isPlaying || this.data.isPaused) {
+                    const unlock = new SpeechSynthesisUtterance('');
+                    this.synth.speak(unlock);
+                }
+
+                // 2. 逻辑分支
+                if (this.data.isPlaying) {
+                    if (this.data.isPaused) {
+                        this.resume();
+                    } else {
+                        this.pause();
+                    }
+                } else {
+                    this.start();
+                }
+            },
+
+            start() {
+                if (this.data.words.length === 0) {
+                    this.shakeInput(); // 视觉反馈
+                    return;
+                }
+
+                // 初始化状态
+                this.data.isPlaying = true;
+                this.data.isPaused = false;
+                this.data.currentIndex = 0;
+                this.data.repeatCount = 0;
+                this.data.isWaiting = false;
+
+                // UI 切换
+                this.switchMode('play');
+                this.els.stopBtn.disabled = false;
+                this.els.stopBtn.classList.replace('text-slate-400', 'text-red-500');
+                
+                this.updatePlayBtnState(true, false);
+                this.playNextWord();
+            },
+
+            playNextWord() {
+                if (!this.data.isPlaying || this.data.isPaused) return;
+
+                // 检查是否结束
+                if (this.data.currentIndex >= this.data.words.length) {
+                    this.finish();
+                    return;
+                }
+
+                const word = this.data.words[this.data.currentIndex];
+                
+                // 更新 UI 信息
+                this.updateProgressUI(word, 'reading');
+
+                // 创建语音
+                const u = new SpeechSynthesisUtterance(word);
+                u.lang = 'zh-CN';
+                u.rate = this.data.settings.rate;
+                
+                // 事件绑定
+                u.onend = () => {
+                    if (!this.data.isPlaying) return;
+                    
+                    this.data.repeatCount++;
+                    
+                    if (this.data.repeatCount < this.data.settings.repeats) {
+                        // 还没读够，稍作停顿后重读
+                        setTimeout(() => {
+                            if(this.data.isPlaying && !this.data.isPaused) this.playNextWord(); // 这里的逻辑是再次调用 playNextWord 但索引没变
+                        }, 600);
+                    } else {
+                        // 读够了，进入等待书写
+                        this.data.repeatCount = 0; // 重置
+                        this.startWaiting();
+                    }
+                };
+
+                // 修正重复调用的逻辑：
+                // 如果是同个词的第N遍，我们不需要改变 currentIndex
+                // 这里直接 speak 即可
+                
+                // 为了兼容性，取消之前的队列
+                this.synth.cancel();
+                this.synth.speak(u);
+            },
+
+            startWaiting() {
+                this.data.isWaiting = true;
+                let timeLeft = this.data.settings.interval;
+                
+                this.updateProgressUI(this.data.words[this.data.currentIndex], 'waiting', timeLeft);
+
+                // 清除旧定时器
+                if (this.data.timer) clearInterval(this.data.timer);
+
+                this.data.timer = setInterval(() => {
+                    if (!this.data.isPlaying || this.data.isPaused) {
+                        clearInterval(this.data.timer);
+                        return;
+                    }
+
+                    timeLeft--;
+                    this.updateProgressUI(this.data.words[this.data.currentIndex], 'waiting', timeLeft);
+
+                    if (timeLeft <= 0) {
+                        clearInterval(this.data.timer);
+                        this.data.isWaiting = false;
+                        this.data.currentIndex++; // 只有等待结束才进下一个词
+                        this.playNextWord();
+                    }
+                }, 1000);
+            },
+
+            pause() {
+                this.data.isPaused = true;
+                this.synth.cancel();
+                clearInterval(this.data.timer);
+                this.updatePlayBtnState(true, true);
+                this.els.statusText.textContent = '已暂停';
+                this.els.currentWord.classList.add('opacity-50');
+            },
+
+            resume() {
+                this.data.isPaused = false;
+                this.updatePlayBtnState(true, false);
+                this.els.currentWord.classList.remove('opacity-50');
+                
+                // 恢复策略：重读当前词，用户体验更好
+                this.data.repeatCount = 0; 
+                this.playNextWord();
+            },
+
+            stop() {
+                this.data.isPlaying = false;
+                this.data.isPaused = false;
+                this.synth.cancel();
+                clearInterval(this.data.timer);
+                
+                this.switchMode('edit');
+                this.els.stopBtn.disabled = true;
+                this.els.stopBtn.classList.replace('text-red-500', 'text-slate-400');
+                this.updatePlayBtnState(false);
+            },
+
+            finish() {
+                this.stop();
+                alert("🎉 听写完成！");
+            },
+
+            // --- UI 辅助方法 ---
+
+            switchMode(mode) {
+                if (mode === 'play') {
+                    this.els.editMode.classList.add('opacity-0', 'pointer-events-none');
+                    // 延迟一点让 editMode 消失后再显示 playMode，防止布局跳动
+                    setTimeout(() => {
+                        this.els.editMode.style.display = 'none';
+                        this.els.playMode.classList.remove('hidden');
+                        this.els.input.blur(); // 收起键盘
+                    }, 300);
+                } else {
+                    this.els.playMode.classList.add('hidden');
+                    this.els.editMode.style.display = 'block';
+                    // 强制重绘后再显示
+                    requestAnimationFrame(() => {
+                        this.els.editMode.classList.remove('opacity-0', 'pointer-events-none');
+                    });
+                }
+            },
+
+            updateProgressUI(word, state, timeLeft = 0) {
+                // 进度条
+                const pct = ((this.data.currentIndex) / this.data.words.length) * 100;
+                this.els.progressBar.style.width = `${pct}%`;
+                this.els.progressText.textContent = `${this.data.currentIndex + 1}/${this.data.words.length}`;
+                
+                this.els.currentWord.textContent = word;
+
+                if (state === 'reading') {
+                    this.els.statusText.textContent = `正在朗读 (${this.data.repeatCount + 1}/${this.data.settings.repeats})`;
+                    this.els.currentWord.classList.add('text-blue-600', 'scale-110');
+                    this.els.currentWord.classList.remove('text-slate-900', 'scale-100');
+                } else {
+                    this.els.statusText.textContent = `请书写... ${timeLeft}s`;
+                    this.els.currentWord.classList.remove('text-blue-600', 'scale-110');
+                    this.els.currentWord.classList.add('text-slate-900', 'scale-100');
+                }
+            },
+
+            updatePlayBtnState(isPlaying, isPaused) {
+                if (!isPlaying) {
+                    this.els.btnText.textContent = "开始听写";
+                    this.els.playIcon.innerHTML = '<path d="M5 3l14 9-14 9V3z"/>'; // Play icon
+                    this.els.mainBtn.classList.remove('bg-amber-500', 'shadow-amber-500/30');
+                    this.els.mainBtn.classList.add('bg-[#007AFF]', 'shadow-blue-500/30');
+                } else if (isPaused) {
+                    this.els.btnText.textContent = "继续";
+                    this.els.playIcon.innerHTML = '<path d="M5 3l14 9-14 9V3z"/>';
+                    this.els.mainBtn.classList.remove('bg-amber-500', 'shadow-amber-500/30');
+                    this.els.mainBtn.classList.add('bg-[#007AFF]', 'shadow-blue-500/30');
+                } else {
+                    this.els.btnText.textContent = "暂停";
+                    this.els.playIcon.innerHTML = '<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>'; // Pause icon
+                    this.els.mainBtn.classList.remove('bg-[#007AFF]', 'shadow-blue-500/30');
+                    this.els.mainBtn.classList.add('bg-amber-500', 'shadow-amber-500/30');
+                }
+            },
+
+            updateRepeatUI(val) {
+                this.els.repeatOpts.forEach(btn => {
+                    const btnVal = parseInt(btn.dataset.val);
+                    if (btnVal === val) {
+                        btn.className = 'repeat-opt flex-1 py-2 rounded-lg text-sm font-semibold transition-all shadow-sm bg-white text-slate-900 scale-100';
+                    } else {
+                        btn.className = 'repeat-opt flex-1 py-2 rounded-lg text-sm font-semibold text-slate-500 transition-all scale-95 hover:bg-slate-50';
+                    }
+                });
+            },
+
+            shakeInput() {
+                this.els.input.classList.add('translate-x-2', 'duration-100', 'ease-in-out');
+                setTimeout(() => this.els.input.classList.remove('translate-x-2'), 100);
+                setTimeout(() => this.els.input.classList.add('-translate-x-2'), 200);
+                setTimeout(() => this.els.input.classList.remove('-translate-x-2', 'duration-100', 'ease-in-out'), 300);
+            },
+
+            saveState() {
+                localStorage.setItem('dictationProData', JSON.stringify({
+                    words: this.els.input.value,
+                    settings: this.data.settings
+                }));
+            },
+
+            loadState() {
+                try {
+                    const raw = localStorage.getItem('dictationProData');
+                    if (raw) {
+                        const data = JSON.parse(raw);
+                        if (data.words) {
+                            this.els.input.value = data.words;
+                            this.processWords();
+                        }
+                        if (data.settings) {
+                            this.data.settings = { ...this.data.settings, ...data.settings };
+                            // 同步UI
+                            this.els.rateInput.value = this.data.settings.rate;
+                            this.els.rateDisp.textContent = this.data.settings.rate + 'x';
+                            this.els.intInput.value = this.data.settings.interval;
+                            this.els.intDisp.textContent = this.data.settings.interval + 's';
+                            this.updateRepeatUI(this.data.settings.repeats);
+                        }
+                    }
+                } catch (e) { console.error(e); }
+            }
+        };
+
+        // 启动应用
+        window.addEventListener('load', () => App.init());
+
+    </script>
+</body>
+</html>
+
+
